@@ -1,20 +1,56 @@
 # ============================================================
-# oracle-kit — Docker Compose
+# oracle-kit — Docker Compose (Full Stack)
 # ============================================================
-# Usage:
-#   docker compose up -d              # start oracle-api + oracle-studio
-#   docker compose --profile ollama up -d  # + ollama container
-#   docker compose down               # stop all
-#   docker compose logs -f oracle-api # follow logs
 #
-# First time:
-#   cp .env.example .env && nano .env
+# Services:
+#   oracle-init    Clone/update oracle repos to shared volume
+#   oracle-api     oracle-v2 HTTP API + MCP server  (:47778)
+#   oracle-studio  3D knowledge map dashboard        (:3000)
+#   maw            Fleet web UI + WebSocket           (:3456)
+#   ollama         Embedding model server             (:11434) [--profile ollama]
+#
+# Quick start:
+#   cp .env.example .env
 #   docker compose up -d
+#
+# With local Ollama (Mac recommended — GPU access):
+#   docker compose up -d   (oracle-api auto-connects to host Ollama)
+#
+# With Ollama in Docker:
+#   docker compose --profile ollama up -d
 # ============================================================
 
 services:
 
-  # ── oracle-api (HTTP API + MCP server) ─────────────────────
+  # ── Init: Clone oracle repos ──────────────────────────────
+  # Runs once, clones/pulls all oracle repos to shared volume.
+  # Subsequent starts just `git pull` to keep repos fresh.
+  oracle-init:
+    image: alpine/git:latest
+    container_name: oracle-init
+    volumes:
+      - oracle-repos:/repos
+    environment:
+      ORACLE_REPOS: ${ORACLE_REPOS:-allday9z/database-oracle allday9z/conductor-oracle allday9z/m2-manager-oracle}
+    command: >
+      sh -c "
+        echo '📦 oracle-init: syncing repos...' &&
+        for repo in $${ORACLE_REPOS}; do
+          name=$$(basename $$repo)
+          if [ -d /repos/$$repo/.git ]; then
+            echo \"  → $$repo: pulling\" && git -C /repos/$$repo pull --quiet
+          else
+            echo \"  → $$repo: cloning\" && mkdir -p /repos/$$repo &&
+            git clone --depth 1 https://github.com/$$repo /repos/$$repo
+          fi
+        done &&
+        echo '✅ oracle-init: done'
+      "
+    restart: "no"
+    networks:
+      - oracle-net
+
+  # ── oracle-api (HTTP API + MCP) ───────────────────────────
   oracle-api:
     build:
       context: .
@@ -27,10 +63,8 @@ services:
     ports:
       - "${ORACLE_PORT:-47778}:47778"
     volumes:
-      # Persist oracle DB (SQLite + LanceDB)
       - oracle-data:/root/.oracle
-      # Mount host oracle repos for indexing (read-only)
-      - ${GHQ_ROOT:-~/.ghq}:/ghq-repos:ro
+      - oracle-repos:/ghq-repos:ro
     environment:
       ORACLE_PORT: 47778
       ORACLE_VECTOR_DB: ${ORACLE_VECTOR_DB:-lancedb}
@@ -39,18 +73,20 @@ services:
       ORACLE_REPO_ROOT: /ghq-repos/${ORACLE_PRIMARY_REPO:-allday9z/database-oracle}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
     extra_hosts:
-      # Allow container to reach host (for Ollama on Mac/Linux)
       - "host.docker.internal:host-gateway"
+    depends_on:
+      oracle-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:47778/api/health"]
-      interval: 30s
-      timeout: 10s
+      interval: 20s
+      timeout: 5s
       start_period: 15s
-      retries: 3
+      retries: 5
     networks:
       - oracle-net
 
-  # ── oracle-studio (3D Dashboard) ───────────────────────────
+  # ── oracle-studio (3D Dashboard) ─────────────────────────
   oracle-studio:
     build:
       context: .
@@ -77,12 +113,39 @@ services:
     networks:
       - oracle-net
 
-  # ── ollama (optional — use --profile ollama) ───────────────
-  # By default, oracle-api connects to HOST ollama (port 11434)
-  # Use this profile only if you want ollama inside Docker
+  # ── maw (Fleet Web UI + WebSocket) ───────────────────────
+  maw:
+    build:
+      context: .
+      dockerfile: Dockerfile.maw
+      args:
+        MAW_REPO: https://github.com/Soul-Brews-Studio/maw-js
+    image: oracle-maw:latest
+    container_name: oracle-maw
+    restart: unless-stopped
+    ports:
+      - "${MAW_PORT:-3456}:3456"
+    environment:
+      MAW_PORT: 3456
+      ORACLE_URL: http://oracle-api:47778
+    depends_on:
+      oracle-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3456"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks:
+      - oracle-net
+
+  # ── ollama (optional: --profile ollama) ──────────────────
+  # Default: oracle-api connects to HOST Ollama (Mac GPU access)
+  # Use this profile only when running fully in Docker
   ollama:
     image: ollama/ollama:latest
-    container_name: ollama
+    container_name: oracle-ollama
     restart: unless-stopped
     profiles: ["ollama"]
     ports:
@@ -91,19 +154,33 @@ services:
       - ollama-data:/root/.ollama
     environment:
       OLLAMA_ORIGINS: "*"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
     networks:
       - oracle-net
-    # Pull model on startup
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull nomic-embed-text && wait"]
+    entrypoint: >
+      sh -c "ollama serve &
+             sleep 8 &&
+             ollama pull nomic-embed-text &&
+             wait"
 
-# ── Volumes ───────────────────────────────────────────────────
+# ── Volumes ────────────────────────────────────────────────
 volumes:
   oracle-data:
     name: oracle-data
+    # Persists: SQLite DB + LanceDB vectors
+  oracle-repos:
+    name: oracle-repos
+    # Persists: cloned oracle git repos (for indexing)
   ollama-data:
-    name: ollama-data
+    name: oracle-ollama-data
+    # Persists: Ollama model weights
 
-# ── Networks ──────────────────────────────────────────────────
+# ── Networks ───────────────────────────────────────────────
 networks:
   oracle-net:
     name: oracle-net

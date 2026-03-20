@@ -1,0 +1,40 @@
+# ============================================================
+# maw — Multi-Agent Workflow Web UI
+# Port: 3456
+# Note: Serves the web dashboard only.
+#       tmux operations (wake/hey) run on HOST via maw CLI.
+# ============================================================
+
+FROM oven/bun:1.2-alpine AS builder
+
+RUN apk add --no-cache git python3 make g++
+
+WORKDIR /app
+
+ARG MAW_REPO=https://github.com/Soul-Brews-Studio/maw-js
+ARG MAW_BRANCH=main
+RUN git clone --depth 1 --branch ${MAW_BRANCH} ${MAW_REPO} .
+
+RUN bun install --frozen-lockfile 2>/dev/null || bun install
+
+# Build frontend
+RUN cd office && bunx vite build
+
+# ── Runtime ──────────────────────────────────────────────────
+FROM oven/bun:1.2-alpine
+
+RUN apk add --no-cache curl tini
+
+WORKDIR /app
+COPY --from=builder /app .
+
+ENV MAW_PORT=3456 \
+    ORACLE_URL=http://oracle-api:47778
+
+EXPOSE 3456
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:${MAW_PORT} || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["bun", "src/server.ts"]
