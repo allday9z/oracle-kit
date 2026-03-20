@@ -1,0 +1,9 @@
+{
+  "name": "04-conductor",
+  "windows": [
+    {
+      "name": "conductor-oracle",
+      "repo": "allday9z/conductor-oracle"
+    }
+  ]
+}

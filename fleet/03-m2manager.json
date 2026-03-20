@@ -1,0 +1,9 @@
+{
+  "name": "03-m2manager",
+  "windows": [
+    {
+      "name": "m2manager-oracle",
+      "repo": "allday9z/m2-manager-oracle"
+    }
+  ]
+}

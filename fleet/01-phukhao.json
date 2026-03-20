@@ -1,0 +1,9 @@
+{
+  "name": "01-phukhao",
+  "windows": [
+    {
+      "name": "phukhao-oracle",
+      "repo": "Soul-Brews-Studio/phukhao-oracle"
+    }
+  ]
+}

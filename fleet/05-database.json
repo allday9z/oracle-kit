@@ -1,0 +1,9 @@
+{
+  "name": "05-database",
+  "windows": [
+    {
+      "name": "database-oracle",
+      "repo": "allday9z/database-oracle"
+    }
+  ]
+}

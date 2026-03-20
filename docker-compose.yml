@@ -1,0 +1,110 @@
+# ============================================================
+# oracle-kit — Docker Compose
+# ============================================================
+# Usage:
+#   docker compose up -d              # start oracle-api + oracle-studio
+#   docker compose --profile ollama up -d  # + ollama container
+#   docker compose down               # stop all
+#   docker compose logs -f oracle-api # follow logs
+#
+# First time:
+#   cp .env.example .env && nano .env
+#   docker compose up -d
+# ============================================================
+
+services:
+
+  # ── oracle-api (HTTP API + MCP server) ─────────────────────
+  oracle-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      args:
+        ORACLE_V2_REPO: https://github.com/allday9z/oracle-v2
+    image: oracle-api:latest
+    container_name: oracle-api
+    restart: unless-stopped
+    ports:
+      - "${ORACLE_PORT:-47778}:47778"
+    volumes:
+      # Persist oracle DB (SQLite + LanceDB)
+      - oracle-data:/root/.oracle
+      # Mount host oracle repos for indexing (read-only)
+      - ${GHQ_ROOT:-~/.ghq}:/ghq-repos:ro
+    environment:
+      ORACLE_PORT: 47778
+      ORACLE_VECTOR_DB: ${ORACLE_VECTOR_DB:-lancedb}
+      ORACLE_EMBEDDING_PROVIDER: ${ORACLE_EMBEDDING_PROVIDER:-ollama}
+      ORACLE_VECTOR_DB_PATH: /root/.oracle/lancedb
+      ORACLE_REPO_ROOT: /ghq-repos/${ORACLE_PRIMARY_REPO:-allday9z/database-oracle}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      # Allow container to reach host (for Ollama on Mac/Linux)
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:47778/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    networks:
+      - oracle-net
+
+  # ── oracle-studio (3D Dashboard) ───────────────────────────
+  oracle-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile.studio
+      args:
+        STUDIO_REPO: https://github.com/Soul-Brews-Studio/oracle-studio
+    image: oracle-studio:latest
+    container_name: oracle-studio
+    restart: unless-stopped
+    ports:
+      - "${STUDIO_PORT:-3000}:3000"
+    environment:
+      ORACLE_API_URL: http://oracle-api:47778
+      PORT: 3000
+    depends_on:
+      oracle-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    networks:
+      - oracle-net
+
+  # ── ollama (optional — use --profile ollama) ───────────────
+  # By default, oracle-api connects to HOST ollama (port 11434)
+  # Use this profile only if you want ollama inside Docker
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      OLLAMA_ORIGINS: "*"
+    networks:
+      - oracle-net
+    # Pull model on startup
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull nomic-embed-text && wait"]
+
+# ── Volumes ───────────────────────────────────────────────────
+volumes:
+  oracle-data:
+    name: oracle-data
+  ollama-data:
+    name: ollama-data
+
+# ── Networks ──────────────────────────────────────────────────
+networks:
+  oracle-net:
+    name: oracle-net
+    driver: bridge

@@ -1,0 +1,10 @@
+{
+  "name": "99-overview",
+  "windows": [
+    {
+      "name": "live",
+      "repo": "Soul-Brews-Studio/opensource-nat-brain-oracle"
+    }
+  ],
+  "skip_command": true
+}

@@ -1,0 +1,9 @@
+{
+  "name": "06-dapp-brainstorm",
+  "windows": [
+    {
+      "name": "dapp-brainstorm",
+      "repo": "allday9z/dapp-partner-store"
+    }
+  ]
+}

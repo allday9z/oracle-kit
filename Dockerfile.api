@@ -1,0 +1,50 @@
+# ============================================================
+# oracle-api — oracle-v2 HTTP API + MCP Server
+# Port: 47778
+# ============================================================
+# Build:   docker build -f Dockerfile.api -t oracle-api .
+# Run:     docker run -p 47778:47778 oracle-api
+
+# ── Stage 1: Clone + Install ─────────────────────────────────
+FROM oven/bun:1.2-alpine AS builder
+
+RUN apk add --no-cache git python3 make g++ sqlite
+
+WORKDIR /app
+
+# Clone oracle-v2
+ARG ORACLE_V2_REPO=https://github.com/allday9z/oracle-v2
+ARG ORACLE_V2_BRANCH=main
+RUN git clone --depth 1 --branch ${ORACLE_V2_BRANCH} ${ORACLE_V2_REPO} .
+
+# Install dependencies
+RUN bun install --frozen-lockfile 2>/dev/null || bun install
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM oven/bun:1.2-alpine
+
+RUN apk add --no-cache curl python3 sqlite tini
+
+WORKDIR /app
+
+# Copy built app
+COPY --from=builder /app .
+
+# Oracle data directory
+RUN mkdir -p /root/.oracle/lancedb
+
+# Environment defaults
+ENV ORACLE_PORT=47778 \
+    ORACLE_VECTOR_DB=lancedb \
+    ORACLE_EMBEDDING_PROVIDER=ollama \
+    ORACLE_VECTOR_DB_PATH=/root/.oracle/lancedb \
+    ORACLE_REPO_ROOT=/oracle-repos/primary
+
+EXPOSE 47778
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:${ORACLE_PORT}/api/health || exit 1
+
+# Use tini for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["bun", "src/server.ts"]

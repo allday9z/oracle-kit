@@ -1,0 +1,9 @@
+{
+  "name": "02-opensourcenatbrain",
+  "windows": [
+    {
+      "name": "opensourcenatbrain-oracle",
+      "repo": "Soul-Brews-Studio/opensource-nat-brain-oracle"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "07-devops",
+  "windows": [
+    {
+      "name": "devops-oracle",
+      "repo": "allday9z/devops-oracle"
+    }
+  ]
+}
