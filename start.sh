@@ -18,7 +18,7 @@
 #   bash start.sh              # full start (auto-detect)
 #   bash start.sh docker       # force Docker mode
 #   bash start.sh native       # force native mode
-#   bash start.sh stop         # stop everything
+#   bash start.sh stop         # stop everything (graceful)
 #   bash start.sh restart      # stop + start
 #   bash start.sh status       # health check
 #   bash start.sh wake         # wake oracle agents only
@@ -26,11 +26,16 @@
 #   bash start.sh build        # rebuild Docker images
 #   bash start.sh update       # pull latest + rebuild
 #   bash start.sh index        # re-index oracle repos
+#   bash start.sh vault        # sync all oracle-vault repos now
+#   bash start.sh sync         # full sync (index + vault + auto-commit)
 #   bash start.sh config       # regenerate .env + maw.config.json
 # ============================================================
 
 set -e
 KIT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# Ensure PATH has bun, ghq, brew — needed when called from cron or subshells
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 # ── Load / generate config ────────────────────────────────────
 if [ ! -f "$KIT_ROOT/.env" ]; then
@@ -173,9 +178,16 @@ case "${1:-}" in
     if has_docker; then
       docker compose -f "$KIT_ROOT/docker-compose.yml" down 2>/dev/null && ok "Docker services stopped" || true
     fi
-    # Native ports
+    # Native ports — graceful SIGTERM first, then SIGKILL if needed
     for port in $ORACLE_PORT $STUDIO_PORT $MAW_PORT; do
-      lsof -ti:$port | xargs kill -9 2>/dev/null && ok "Port $port freed" || true
+      PIDS=$(lsof -ti:$port 2>/dev/null) || true
+      if [ -n "$PIDS" ]; then
+        echo "$PIDS" | xargs kill -15 2>/dev/null || true
+        sleep 1
+        REMAINING=$(lsof -ti:$port 2>/dev/null) || true
+        [ -n "$REMAINING" ] && echo "$REMAINING" | xargs kill -9 2>/dev/null || true
+        ok "Port $port freed"
+      fi
     done
     # Oracle agents
     has_maw && maw stop 2>/dev/null && ok "Oracle agents stopped" || true
@@ -231,6 +243,28 @@ case "${1:-}" in
     "$0" restart
     ;;
 
+  vault)
+    step "🔒 Oracle Vault Sync"
+    ORACLE_V2="$GHQ_ROOT/allday9z/oracle-v2"
+    IFS=' ' read -ra REPOS <<< "${ORACLE_REPOS:-allday9z/database-oracle}"
+    for repo in "${REPOS[@]}"; do
+      name=$(basename "$repo")
+      result=$(cd "$ORACLE_V2" && ORACLE_REPO_ROOT="$GHQ_ROOT/$repo" bun src/vault/cli.ts sync 2>&1 | grep -E "Synced|error" | head -1)
+      [ -n "$result" ] && ok "$name: $result" || ok "$name: up to date"
+    done
+    ;;
+
+  sync)
+    step "🔄 Full Sync (index + vault + commit)"
+    DB_ORACLE="$GHQ_ROOT/allday9z/database-oracle"
+    if [ -f "$DB_ORACLE/ψ/lab/multi-agent/sync-all.sh" ]; then
+      bash "$DB_ORACLE/ψ/lab/multi-agent/sync-all.sh"
+    else
+      warn "sync-all.sh not found — running index only"
+      bash "$KIT_ROOT/scripts/index-all.sh"
+    fi
+    ;;
+
   index)
     bash "$KIT_ROOT/scripts/index-all.sh"
     ;;
@@ -262,14 +296,16 @@ case "${1:-}" in
       echo "  (none)         Auto-detect Docker/native, start everything"
       echo "  docker         Force Docker Compose mode"
       echo "  native         Force native tmux mode"
-      echo "  stop           Stop all services + agents"
+      echo "  stop           Stop all services + agents (graceful)"
       echo "  restart        Stop + start"
       echo "  status         Health check"
       echo "  wake           Wake oracle agents only (maw wake all)"
       echo "  logs [svc]     Follow logs (api|studio|maw)"
       echo "  build          Rebuild Docker images"
       echo "  update         Pull latest + rebuild + restart"
-      echo "  index          Re-index oracle repos"
+      echo "  index          Re-index oracle repos into LanceDB"
+      echo "  vault          Sync all oracle repos → oracle-vault (GitHub backup)"
+      echo "  sync           Full sync: index + vault + auto-commit all oracles"
       echo "  config         Regenerate .env + maw.config.json"
       exit 0
     fi

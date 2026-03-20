@@ -3,6 +3,7 @@
 # Runs on session start + cron every 5 min
 # Usage: ./auto-dispatch.sh [--wake]
 
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 ORACLE_API="http://localhost:47778"
 TIMESTAMP=$(date '+%Y-%m-%dT%H:%M:%S')
 WAKE_MODE="${1:-}"

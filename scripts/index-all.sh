@@ -3,6 +3,7 @@
 # Usage: bash scripts/index-all.sh
 
 KIT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 [ -f "$KIT_ROOT/.env" ] && export $(grep -v '^#' "$KIT_ROOT/.env" | xargs) 2>/dev/null
 
 GHQ_ROOT="${GHQ_ROOT:-/Users/$(whoami)/ghq/github.com}"

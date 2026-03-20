@@ -3,6 +3,7 @@
 # Usage: bash health.sh
 
 KIT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 [ -f "$KIT_ROOT/.env" ] && export $(grep -v '^#' "$KIT_ROOT/.env" | xargs) 2>/dev/null
 
 ORACLE_PORT="${ORACLE_PORT:-47778}"
@@ -54,6 +55,28 @@ else
   warn "oracle API not responding"
 fi
 
+# ── Oracle Vault ─────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}Oracle Vault:${RESET}"
+GHQ_ROOT="${GHQ_ROOT:-$HOME/ghq/github.com}"
+ORACLE_V2="$GHQ_ROOT/allday9z/oracle-v2"
+IFS=' ' read -ra VAULT_REPOS <<< "${ORACLE_REPOS:-allday9z/database-oracle}"
+for repo in "${VAULT_REPOS[@]}"; do
+  name=$(basename "$repo")
+  STATUS=$(cd "$ORACLE_V2" 2>/dev/null && ORACLE_REPO_ROOT="$GHQ_ROOT/$repo" bun src/vault/cli.ts status 2>/dev/null || echo "")
+  if [ -n "$STATUS" ]; then
+    LAST=$(echo "$STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('lastSync','?')[:16].replace('T',' '))" 2>/dev/null || echo "?")
+    PENDING=$(echo "$STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); p=d.get('pending',{}); print(p.get('total',0))" 2>/dev/null || echo "?")
+    if [ "$PENDING" = "0" ]; then
+      ok "$name  last sync: $LAST  pending: 0"
+    else
+      warn "$name  last sync: $LAST  pending: $PENDING files → bash start.sh vault"
+    fi
+  else
+    warn "$name  vault not configured"
+  fi
+done
+
 # ── Docker ───────────────────────────────────────────────────
 if has_docker; then
   echo ""
@@ -86,15 +109,16 @@ maw ls 2>/dev/null | sed 's/^/  /' || echo "  (maw not available — run: bash s
 # ── Crons ────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}Cron jobs:${RESET}"
-CRONS=$(crontab -l 2>/dev/null | grep -E "oracle|dispatch|sync" | grep -v "^#")
+CRONS=$(crontab -l 2>/dev/null | grep -E "oracle|dispatch|sync|auto-commit" | grep -v "^#")
 if [ -n "$CRONS" ]; then
   echo "$CRONS" | sed 's/^/  /'
 else
   warn "No oracle crons configured"
+  DB_ORACLE="$GHQ_ROOT/allday9z/database-oracle"
   echo ""
   echo "  Add these to crontab (crontab -e):"
-  echo "    */5  * * * *  bash $KIT_ROOT/scripts/auto-dispatch.sh"
-  echo "    */30 * * * *  bash $KIT_ROOT/scripts/index-all.sh"
+  echo "    */5  * * * *  bash $DB_ORACLE/ψ/lab/multi-agent/auto-dispatch.sh >> /tmp/oracle-autodispatch.log 2>&1"
+  echo "    */30 * * * *  bash $DB_ORACLE/ψ/lab/multi-agent/sync-all.sh >> /tmp/oracle-sync.log 2>&1"
 fi
 
 echo ""

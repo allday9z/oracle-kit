@@ -10,6 +10,10 @@
 
 set -e
 KIT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# Ensure PATH has bun, ghq, brew — needed when called from cron or subshells
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
 GHQ_ROOT="${GHQ_ROOT:-/Users/$(whoami)/ghq/github.com}"
 ORACLE_V2="$GHQ_ROOT/allday9z/oracle-v2"
 ORACLE_STUDIO="$GHQ_ROOT/Soul-Brews-Studio/oracle-studio"
@@ -155,24 +159,5 @@ else
   } || warn "maw-js not found — re-run without --start"
 fi
 
-# ── Summary ─────────────────────────────────────────────────
-echo ""
-echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "${BOLD}☀️  oracle-kit ready!${RESET}"
-echo ""
-STATS=$(curl -s --max-time 3 "http://localhost:$ORACLE_PORT/api/stats" 2>/dev/null)
-[ -n "$STATS" ] && {
-  echo "$STATS" | python3 -c "
-import json,sys; d=json.load(sys.stdin)
-docs=d.get('total',d.get('total_documents','?'))
-vecs=sum(x.get('count',0) for x in d.get('vectors',[])) if d.get('vectors') else 0
-print(f'  Oracle DB: {docs} docs | {vecs} vectors')
-" 2>/dev/null; echo ""
-}
-port_alive $ORACLE_PORT && echo -e "  ${GREEN}●${RESET} oracle API     http://localhost:$ORACLE_PORT" || echo -e "  ${RED}●${RESET} oracle API     DOWN"
-port_alive $STUDIO_PORT && echo -e "  ${GREEN}●${RESET} oracle-studio  http://localhost:$STUDIO_PORT"  || echo -e "  ${RED}●${RESET} oracle-studio  DOWN"
-port_alive $MAW_PORT    && echo -e "  ${GREEN}●${RESET} maw UI         http://localhost:$MAW_PORT"     || echo -e "  ${RED}●${RESET} maw UI         DOWN"
-echo ""
-echo "  bash health.sh       # full health report"
-echo "  bash start.sh stop   # stop all services"
-echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+# ── Summary (delegate to start.sh show_status) ──────────────
+bash "$KIT_ROOT/start.sh" status
